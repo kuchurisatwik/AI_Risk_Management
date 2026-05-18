@@ -1,0 +1,61 @@
+# ============================================================
+# Feature Engineering Configuration
+# ============================================================
+# All indicator periods, normalization rules, and feature definitions
+
+# Step 1: Raw Indicators
+indicators:
+  ema_periods: [5, 9, 20, 50, 100, 200]
+  atr_periods: [14, 50]
+  rsi_period: 14
+  bollinger:
+    period: 20
+    std_dev: 2
+  rolling_std_windows: [20, 50]
+  vwap_reset: "session"       # for crypto: rolling or session
+
+# Step 2: Normalization
+# RULE: Always normalize using ATR or rolling statistics.
+# Never feed raw price, raw EMA, or raw volume into models.
+normalization:
+  method: "atr"               # primary normalization method
+  atr_period: 14              # ATR period for normalization
+  rolling_volume_window: 20   # for volume normalization
+  volatility_percentile_window: 200
+
+# Step 3: Multi-Timeframe
+multi_timeframe:
+  base: "15m"
+  higher_tfs: ["1h", "4h", "1d"]
+  lower_tfs: ["5m"]
+  alignment: "close_timestamp"  # align higher-TF to base-TF close
+
+# Minimum Feature Set (Section 4.3 — Start here for v1 training)
+minimum_features:
+  - ema_20_slope
+  - atr_14
+  - atr_expansion_ratio
+  - rsi_velocity
+  - vwap_distance
+  - spread_ratio
+  - orderbook_imbalance
+  - volume_delta
+  - strategy_health_score
+  - strategy_recent_accuracy
+  - strategy_avg_rr
+  - last_5_trade_winrate
+  - consecutive_losses
+  - recent_drawdown
+  - revenge_trade_score
+
+# Features available from OHLCV data only (no order book needed)
+# These are what we can compute in Phase 1 from Binance kline data
+ohlcv_features:
+  - ema_20_slope
+  - atr_14
+  - atr_expansion_ratio
+  - rsi_velocity
+  - vwap_distance
+  - volume_ratio
+  - bollinger_width
+  - bollinger_width_percentile

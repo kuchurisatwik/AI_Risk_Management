@@ -1,0 +1,35 @@
+# ============================================================
+# Asset / Symbol Configuration
+# ============================================================
+
+BTCUSDT:
+  exchange: "binance"
+  market_type: "futures"      # um = USDT-M futures
+  base_asset: "BTC"
+  quote_asset: "USDT"
+  base_timeframe: "15m"       # primary training timeframe
+
+  # Multi-timeframe hierarchy (low → high)
+  timeframes:
+    - 5m
+    - 15m
+    - 1h
+    - 4h
+    - 1d
+
+  # Session settings (crypto = 24/7, no session reset needed)
+  session:
+    type: "continuous"        # 24/7 market
+    timezone: "UTC"
+
+  # Data quality thresholds
+  quality:
+    max_missing_candle_pct: 0.5      # Phase 1 gate: < 0.5%
+    spike_atr_threshold: 5.0          # reject ticks > 5 ATR from rolling mean
+    spike_rolling_window: 50          # rolling window for spike detection
+
+  # Fee structure for backtesting
+  fees:
+    maker: 0.0002              # 0.02%
+    taker: 0.0004              # 0.04%
+    slippage_atr_pct: 0.05     # 5% of ATR per fill

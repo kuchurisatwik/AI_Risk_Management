@@ -1,0 +1,37 @@
+# ============================================================
+# Risk Policy Engine Thresholds (Section 9.3)
+# ============================================================
+# All thresholds are centralized here. Never hardcode in Python.
+
+# Stage 1: Hard Rejections
+emotional_block: 0.80
+max_spread_ratio: 0.003
+min_momentum_prob: 0.55
+
+# Stage 2: Soft Scaling
+base_risk_percent: 0.010       # 1% base risk per trade
+vol_expansion_threshold: 0.0025
+high_risk_scale: 0.50
+medium_risk_scale: 0.75
+vol_scale: 0.70
+weak_momentum_scale: 0.85
+loss_streak_scale: 0.80
+
+# Stage 3: SL/TP
+rr_ratio: 2.0                 # default reward-to-risk ratio
+
+# ATR multipliers per regime (Section 7.4)
+atr_multipliers:
+  trending_low_vol: 1.5
+  trending_high_vol: 2.0
+  sideways_low_vol: 1.0
+  choppy_high_vol: 2.5
+  crash_mode: 3.0              # widest SL in crash mode
+
+# Backtest gate conditions (Section 11.2)
+backtest_gates:
+  min_sharpe: 0.5
+  max_drawdown: 0.15
+  min_win_rate: 0.40
+  min_profit_factor: 1.2
+  min_trades: 100

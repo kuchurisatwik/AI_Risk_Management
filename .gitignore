@@ -1,0 +1,44 @@
+# Data directories (large files)
+# data/raw/
+# data/cleaned/
+# data/features/
+# data/labeled/
+
+# MLflow
+mlruns/
+
+# Logs
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Temp
+*.tmp
+*.bak
+roadmap_extracted.txt
