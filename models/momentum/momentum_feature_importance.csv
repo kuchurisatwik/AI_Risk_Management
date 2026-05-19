@@ -1,0 +1,12 @@
+feature,importance
+ema_20_slope_1h,0.10165009
+regime_cluster,0.09844733
+vwap_distance,0.09788779
+atr_expansion_ratio,0.09545818
+trend_alignment_score,0.093654945
+ema_20_slope,0.09191134
+ema_20_slope_5m,0.09086277
+rsi_velocity_5m,0.08673103
+trade_imbalance,0.084415264
+volume_delta,0.08052635
+rsi_velocity,0.07845494
