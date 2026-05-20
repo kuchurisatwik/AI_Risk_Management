@@ -1,0 +1,9 @@
+symbol: ETHUSDT
+timestamp: '2026-05-20T16:52:10.133416'
+n_trials: 100
+best_trial: 0
+best_sharpe: -100.0
+best_return: 0.0
+best_drawdown: 0.0
+best_win_rate: 0.0
+best_n_trades: 0

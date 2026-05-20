@@ -1,0 +1,14 @@
+feature,importance
+volatility_percentile,0.22043563
+recent_drawdown,0.20641826
+consecutive_losses,0.14069155
+emotional_risk_score,0.092390075
+strategy_health_score,0.08959647
+last_5_trade_winrate,0.08359493
+regime_cluster,0.051569566
+atr_expansion_ratio,0.030511389
+strategy_avg_rr,0.024591029
+regime_confidence,0.021094121
+predicted_volatility,0.01701276
+momentum_probability,0.014658989
+amihud_illiquidity,0.0074351695

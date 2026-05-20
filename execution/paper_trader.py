@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Trade:
-    """A single simulated trade."""
+    """A single simulated trade with full diagnostic audit trail."""
     entry_time: pd.Timestamp
     entry_price: float
     direction: int            # +1 LONG, -1 SHORT
@@ -30,11 +30,29 @@ class Trade:
     position_size_usd: float
     regime: str
     confidence: float
+    active_branch: str = 'unknown'
+    gmm_subregime: str = 'unknown'
     # Filled on exit
     exit_time: Optional[pd.Timestamp] = None
     exit_price: float = 0.0
     pnl: float = 0.0
     exit_reason: str = ''
+    # ---- Diagnostic fields (institutional audit trail) ----
+    meta_probability: float = 0.0
+    meta_margin: float = 0.0
+    regime_confidence: float = 0.0
+    risk_level: str = 'unknown'
+    behavioral_anomaly: bool = False
+    sl_distance_pct: float = 0.0
+    tp_distance_pct: float = 0.0
+    designed_rr: float = 0.0
+    predicted_volatility: float = 0.0
+    realized_volatility: float = 0.0
+    atr_14: float = 0.0
+    bars_held: int = 0
+    max_adverse_excursion: float = 0.0   # MAE: worst unrealized loss
+    max_favorable_excursion: float = 0.0 # MFE: best unrealized profit
+    policy_warnings: str = ''            # comma-joined policy warnings
 
 
 @dataclass
@@ -65,8 +83,9 @@ class PaperTrader:
     SLIPPAGE_PCT = 0.0001   # 0.01% slippage per trade
     FEE_PCT = 0.0004        # 0.04% maker+taker fee
     
-    def __init__(self, models_dir: str, initial_equity: float = 10000.0):
-        self.engine = TradeDecisionEngine(models_dir)
+    def __init__(self, models_dir: str, initial_equity: float = 10000.0, exec_params: dict = None):
+        self.exec_params = exec_params or {}
+        self.engine = TradeDecisionEngine(models_dir, exec_params=self.exec_params)
         self.initial_equity = initial_equity
     
     def load(self):
@@ -134,6 +153,7 @@ class PaperTrader:
                     units = open_trade.position_size_usd / open_trade.entry_price if open_trade.entry_price > 0 else 0
                     open_trade.pnl = pnl_per_unit * units
                     open_trade.exit_time = current_time
+                    open_trade.bars_held = bars_held
                     
                     equity += open_trade.pnl
                     all_returns.append(open_trade.pnl / peak_equity if peak_equity > 0 else 0)
@@ -143,8 +163,9 @@ class PaperTrader:
                     bars_held = 0
                 else:
                     bars_held += 1
-                    # Time barrier (t1 = 12 bars)
-                    if bars_held >= 12:
+                    # Time barrier
+                    time_barrier = self.exec_params.get('time_barrier_bars', 36)
+                    if bars_held >= time_barrier:
                         open_trade.exit_price = current_close
                         open_trade.exit_reason = 'TIME_BARRIER'
                         
@@ -158,6 +179,7 @@ class PaperTrader:
                         units = open_trade.position_size_usd / open_trade.entry_price if open_trade.entry_price > 0 else 0
                         open_trade.pnl = pnl_per_unit * units
                         open_trade.exit_time = current_time
+                        open_trade.bars_held = bars_held
                         
                         equity += open_trade.pnl
                         all_returns.append(open_trade.pnl / peak_equity if peak_equity > 0 else 0)
@@ -166,6 +188,14 @@ class PaperTrader:
                         open_trade = None
                         bars_held = 0
             
+            # ---- Track MAE/MFE for open trade ----
+            if open_trade is not None and open_trade.exit_reason == '':
+                unrealized = open_trade.direction * (current_close - open_trade.entry_price)
+                if unrealized < open_trade.max_adverse_excursion:
+                    open_trade.max_adverse_excursion = unrealized
+                if unrealized > open_trade.max_favorable_excursion:
+                    open_trade.max_favorable_excursion = unrealized
+            
             # ---- Make new decision if no open trade ----
             if open_trade is None:
                 decision = self.engine.decide(features, equity)
@@ -173,6 +203,10 @@ class PaperTrader:
                 if decision.action in ('LONG', 'SHORT'):
                     direction = 1 if decision.action == 'LONG' else -1
                     entry_with_slip = current_close + direction * current_close * self.SLIPPAGE_PCT
+                    
+                    # Capture full inference state for diagnostics
+                    sl_dist_pct = abs(decision.sl_price - entry_with_slip) / entry_with_slip * 100 if entry_with_slip > 0 else 0
+                    tp_dist_pct = abs(decision.tp_price - entry_with_slip) / entry_with_slip * 100 if entry_with_slip > 0 else 0
                     
                     open_trade = Trade(
                         entry_time=current_time,
@@ -184,6 +218,20 @@ class PaperTrader:
                         position_size_usd=decision.position_size_usd,
                         regime=decision.regime,
                         confidence=decision.meta_probability,
+                        active_branch=decision.active_branch,
+                        gmm_subregime=self.engine.ensemble.predict(features).gmm_subregime,
+                        # Diagnostic fields
+                        meta_probability=decision.meta_probability,
+                        meta_margin=decision.meta_margin,
+                        regime_confidence=decision.regime_confidence,
+                        risk_level=getattr(self.engine.ensemble.predict(features), 'risk_level', 'unknown') if hasattr(self.engine, 'ensemble') else 'unknown',
+                        sl_distance_pct=sl_dist_pct,
+                        tp_distance_pct=tp_dist_pct,
+                        designed_rr=decision.reward_risk_ratio,
+                        predicted_volatility=features.get('predicted_volatility', 0.0),
+                        realized_volatility=features.get('realized_volatility', 0.0),
+                        atr_14=features.get('atr_14', 0.0),
+                        policy_warnings=','.join(decision.warnings) if decision.warnings else '',
                     )
                     bars_held = 0
                 else:
@@ -225,13 +273,13 @@ class PaperTrader:
             avg_loss = abs(np.mean([t.pnl for t in result.trades if t.pnl <= 0])) if losses > 0 else 1
             result.avg_rr_realized = avg_win / avg_loss if avg_loss > 0 else 0
         
-        # Sharpe & Sortino (annualized for 15m bars)
+        # Sharpe & Sortino (annualized for 5m bars: 105,120 bars/year)
         returns = np.array(all_returns)
         if len(returns) > 1 and returns.std() > 0:
-            result.sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(35040)
+            result.sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(105120)
             downside = returns[returns < 0]
             if len(downside) > 0 and downside.std() > 0:
-                result.sortino_ratio = (returns.mean() / downside.std()) * np.sqrt(35040)
+                result.sortino_ratio = (returns.mean() / downside.std()) * np.sqrt(105120)
         
         # Max Drawdown
         eq = np.array(result.equity_curve)

@@ -1,12 +1,14 @@
 """
-Risk Sizing Engine — Fractional Kelly Sizing.
+Risk Sizing Engine — Regime-Adaptive Volatility Targeting.
 
-Replaces fixed risk percent with dynamic sizing based on Kelly Criterion,
-modulated by predicted volatility to maintain constant variance.
+Replaces fixed risk percent with dynamic sizing based on volatility targeting,
+modulated by regime-specific parameters from REGIME_RISK_CONFIG.
 """
 
 import logging
 from dataclasses import dataclass
+
+from training.config import REGIME_RISK_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -22,71 +24,81 @@ class SizingResult:
     position_size_usd: float
 
 
-def compute_kelly_sizing(
+def compute_adaptive_sizing(
     equity: float,
     entry_price: float,
     direction: int,
-    meta_probability: float,
+    regime: str,
+    active_branch: str,
     predicted_volatility: float,
+    realized_volatility: float,
     atr_14: float,
+    vwap_price: float,
     sl_multiplier: float = 1.5,
     tp_multiplier: float = 1.5,
-    regime_risk_modifier: float = 1.0,
-    max_risk_percent: float = 2.0,
-    kelly_fraction: float = 0.5  # Half-Kelly is standard for safety
+    policy_risk_modifier: float = 1.0,
 ) -> SizingResult:
     """
-    Computes position size using Fractional Kelly Criterion.
+    Computes position size using Regime-Adaptive Volatility Targeting.
     """
-    # 1. Distances based on ATR
-    sl_dist = atr_14 * sl_multiplier
-    tp_dist = atr_14 * tp_multiplier
+    # 1. Get Regime Configuration
+    cfg = REGIME_RISK_CONFIG.get(regime, REGIME_RISK_CONFIG.get('unknown', {
+        'target_vol': 0.05, 'max_risk_pct': 1.0, 'kelly_frac': 0.3
+    }))
     
-    # Prices
-    if direction == 1:
-        sl_price = entry_price - sl_dist
-        tp_price = entry_price + tp_dist
-    else:
-        sl_price = entry_price + sl_dist
-        tp_price = entry_price - tp_dist
+    target_vol = cfg.get('target_vol', 0.05)
+    max_risk_pct = cfg.get('max_risk_pct', 1.0)
+    kelly_frac = cfg.get('kelly_frac', 0.3)
+
+    # 2. Distances and Prices based on Branch
+    if active_branch == 'meanrev' and vwap_price > 0:
+        # MeanRev Branch: Target is VWAP
+        tp_price = vwap_price
+        tp_dist = abs(entry_price - vwap_price)
         
-    # 2. Kelly Calculation
+        # SL is 1.5x the VWAP distance from entry, adjusted by multiplier
+        sl_dist = tp_dist * sl_multiplier
+        if direction == 1:
+            sl_price = entry_price - sl_dist
+        else:
+            sl_price = entry_price + sl_dist
+    else:
+        # Trend Branch (or fallback): ATR-based
+        sl_dist = atr_14 * sl_multiplier
+        tp_dist = atr_14 * tp_multiplier
+        
+        if direction == 1:
+            sl_price = entry_price - sl_dist
+            tp_price = entry_price + tp_dist
+        else:
+            sl_price = entry_price + sl_dist
+            tp_price = entry_price - tp_dist
+
     # Odds = Reward / Risk
-    if sl_dist <= 0:
-        b = 1.0
-    else:
-        b = tp_dist / sl_dist
-        
-    p = meta_probability
-    q = 1.0 - p
+    b = tp_dist / sl_dist if sl_dist > 0 else 1.0
+
+    # 3. Volatility Targeting
+    # raw_leverage = target_vol / realized_volatility
+    eff_vol = max(realized_volatility, predicted_volatility, 0.01) # Use max to be conservative
+    raw_leverage = target_vol / eff_vol
+
+    # We convert leverage to a risk % based on stop loss distance.
+    # If we use raw_leverage, our position size = equity * raw_leverage
+    # Risk % = Position Size * (SL Distance / Entry Price) / Equity
+    # Risk % = raw_leverage * (SL Distance / Entry Price)
     
-    # Kelly Formula: f* = p - (q / b)
-    if b > 0:
-        f_star = p - (q / b)
-    else:
-        f_star = 0.0
-        
-    # Cap negative edge to 0
-    f_star = max(0.0, f_star)
-    
-    # 3. Apply Volatility Targeting
-    # High predicted volatility should reduce the raw Kelly fraction
-    # Assume a baseline vol of ~0.01 (1%) for BTC 15m.
-    vol_target_scalar = 0.01 / max(predicted_volatility, 0.001)
-    
+    sl_pct = sl_dist / entry_price if entry_price > 0 else 0.01
+    vol_target_risk_pct = raw_leverage * sl_pct * 100.0
+
     # 4. Final Risk Percent
-    # Raw Kelly f* is typically huge (e.g. 5-15%). 
-    # We apply Half-Kelly (or smaller), vol scaling, and regime modifier.
-    raw_risk_pct = f_star * kelly_fraction * vol_target_scalar * regime_risk_modifier * 100.0
+    # Apply Kelly fraction cap and policy modifier
+    raw_risk_pct = vol_target_risk_pct * kelly_frac * policy_risk_modifier
     
     # Hard cap risk
-    risk_percent = min(raw_risk_pct, max_risk_percent)
+    risk_percent = min(raw_risk_pct, max_risk_pct)
     
     # 5. Position Size USD
-    # Risk Amount = Equity * (Risk_Percent / 100)
-    # Position Size = Risk Amount / (SL_Distance / Entry_Price)
     risk_amount = equity * (risk_percent / 100.0)
-    sl_pct = sl_dist / entry_price if entry_price > 0 else 0.01
     
     if sl_pct > 0:
         position_size_usd = risk_amount / sl_pct

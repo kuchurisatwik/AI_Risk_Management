@@ -7,7 +7,7 @@ BTCUSDT:
   market_type: "futures"      # um = USDT-M futures
   base_asset: "BTC"
   quote_asset: "USDT"
-  base_timeframe: "15m"       # primary training timeframe
+  base_timeframe: "5m"        # primary training timeframe
 
   # Multi-timeframe hierarchy (low → high)
   timeframes:

@@ -197,6 +197,36 @@ def compute_all_base_indicators(df: pd.DataFrame) -> pd.DataFrame:
     result["momentum_score"] = result["rsi_velocity"] + result["trend_strength_score"]
     result["momentum_exhaustion_score"] = (result["rsi_divergence_score"].abs() * result["volatility_percentile"])
 
+    # ============================
+    # Mean-Reversion Features
+    # ============================
+
+    # VWAP Z-Score: standardized distance from fair value
+    vwap_diff = df["close"] - result["vwap"]
+    vwap_diff_std = vwap_diff.rolling(50).std().replace(0, np.nan)
+    result["vwap_zscore"] = (vwap_diff / vwap_diff_std).fillna(0)
+
+    # RSI Extremity: normalized deviation from neutral (0=neutral, 1=extreme OB/OS)
+    result["rsi_extremity"] = (result["rsi_14"] - 50).abs() / 50
+
+    # Rejection Scores: volume-weighted wick signals
+    result["upper_rejection_score"] = result["upper_wick_size"] * result["volume_ratio"]
+    result["lower_rejection_score"] = result["lower_wick_size"] * result["volume_ratio"]
+
+    # Range Position: where is price within the recent range (0=bottom, 1=top)
+    rolling_high_20 = df["high"].rolling(20).max()
+    rolling_low_20 = df["low"].rolling(20).min()
+    range_width = (rolling_high_20 - rolling_low_20).replace(0, np.nan)
+    result["range_position"] = ((df["close"] - rolling_low_20) / range_width).fillna(0.5)
+
+    # Trend Alignment Score: aggregate multi-EMA alignment (-2 to +2)
+    result["trend_alignment_score"] = result["ema_cross_5_20"] + result["ema_cross_20_50"]
+
+    # Normalized EMA Slope (used in current feature list, ensure it exists)
+    if "normalized_ema_slope" not in result.columns:
+        ema_20_slope_std = result["ema_20_slope"].rolling(50).std().replace(0, np.nan)
+        result["normalized_ema_slope"] = (result["ema_20_slope"] / ema_20_slope_std).fillna(0)
+
     return result
 
 

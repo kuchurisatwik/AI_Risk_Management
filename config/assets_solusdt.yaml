@@ -1,0 +1,29 @@
+# ============================================================
+# Asset / Symbol Configuration — SOLUSDT
+# ============================================================
+
+SOLUSDT:
+  exchange: "binance"
+  market_type: "futures"
+  base_asset: "SOL"
+  quote_asset: "USDT"
+  base_timeframe: "5m"
+
+  timeframes:
+    - 5m
+    - 15m
+    - 1h
+
+  session:
+    type: "continuous"
+    timezone: "UTC"
+
+  quality:
+    max_missing_candle_pct: 0.5
+    spike_atr_threshold: 5.0
+    spike_rolling_window: 50
+
+  fees:
+    maker: 0.0002
+    taker: 0.0004
+    slippage_atr_pct: 0.12   # SOL has wider spreads and thinner books

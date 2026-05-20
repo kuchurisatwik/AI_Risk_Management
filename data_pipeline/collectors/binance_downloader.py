@@ -186,7 +186,10 @@ class BinanceDownloader:
                     with zipfile.ZipFile(zip_path, "r") as zf:
                         zf.extractall(out_dir)
                 except zipfile.BadZipFile:
-                    zip_path.unlink(missing_ok=True)
+                    try:
+                        zip_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                     if attempt == self.retry_attempts:
                         return {
                             "date": date_str, "status": "bad_zip",
@@ -195,7 +198,10 @@ class BinanceDownloader:
                     continue
 
                 # Clean up ZIP after successful extraction
-                zip_path.unlink(missing_ok=True)
+                try:
+                    zip_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
                 return {
                     "date": date_str, "status": "downloaded",
@@ -337,9 +343,9 @@ class BinanceDownloader:
         all_results = {}
 
         for symbol in self.symbols:
-            print(f"\n{'─' * 40}")
+            print(f"\n{'-' * 40}")
             print(f"Symbol: {symbol}")
-            print(f"{'─' * 40}")
+            print(f"{'-' * 40}")
 
             symbol_results = {}
             for tf in self.timeframes:

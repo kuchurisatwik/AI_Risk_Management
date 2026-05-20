@@ -8,7 +8,7 @@ Never shuffles. Never leaks future data.
 import logging
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import TimeSeriesSplit
+from utils.purged_kfold import PurgedKFold
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def walk_forward_cv(train_df, feature_cols, label_col, train_fn, eval_fn, n_spli
     Returns:
         list of dicts: [{fold, metrics, model}]
     """
-    tscv = TimeSeriesSplit(n_splits=n_splits)
+    tscv = PurgedKFold(n_splits=n_splits, purge_size=12, embargo_size=24)
     
     # Drop rows where label is NaN
     valid_df = train_df.dropna(subset=[label_col]).reset_index(drop=True)

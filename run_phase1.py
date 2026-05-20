@@ -67,34 +67,42 @@ def step_validate():
 
 
 def step_compute_indicators():
-    """Step 4: Compute basic indicators on 15m base timeframe."""
+    """Step 4: Compute basic indicators on 5m base timeframe."""
     import pandas as pd
+    import yaml
     from feature_engineering.base_indicators import compute_all_base_indicators
 
     print("\n" + "=" * 60)
-    print("STEP 4: COMPUTE BASE INDICATORS (ALL TIMEFRAMES)")
+    print("STEP 4: COMPUTE BASE INDICATORS (5m TIMEFRAME)")
     print("=" * 60)
 
-    features_dir = PROJECT_ROOT / "data" / "features" / "BTCUSDT"
-    features_dir.mkdir(parents=True, exist_ok=True)
-    
-    for tf in ["5m", "15m", "1h"]:
-        cleaned_path = PROJECT_ROOT / "data" / "cleaned" / "BTCUSDT" / f"{tf}.parquet"
-        if not cleaned_path.exists():
-            print(f"  ⚠ {tf}.parquet not found — skipping indicator computation")
-            continue
+    config_path = PROJECT_ROOT / "config" / "data_sources.yaml"
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    symbols = config.get("symbols", ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+    timeframes = config.get("timeframes", ["5m", "15m", "1h"])
 
-        df = pd.read_parquet(cleaned_path)
-        print(f"\n  Computing {tf}... Loaded: {len(df):,} rows")
+    for symbol in symbols:
+        features_dir = PROJECT_ROOT / "data" / "features" / symbol
+        features_dir.mkdir(parents=True, exist_ok=True)
+        
+        for tf in timeframes:
+            cleaned_path = PROJECT_ROOT / "data" / "cleaned" / symbol / f"{tf}.parquet"
+            if not cleaned_path.exists():
+                print(f"  ⚠ {tf}.parquet not found for {symbol} — skipping indicator computation")
+                continue
 
-        df_with_indicators = compute_all_base_indicators(df)
+            df = pd.read_parquet(cleaned_path)
+            print(f"\n  [{symbol}] Computing {tf}... Loaded: {len(df):,} rows")
 
-        out_path = features_dir / f"base_features_{tf}.parquet"
-        df_with_indicators.to_parquet(out_path, engine="pyarrow", index=False)
+            df_with_indicators = compute_all_base_indicators(df)
 
-        n_indicators = len(df_with_indicators.columns) - len(df.columns)
-        print(f"  [*] Computed {n_indicators} indicator columns")
-        print(f"  [*] Saved to {out_path}")
+            out_path = features_dir / f"base_features_{tf}.parquet"
+            df_with_indicators.to_parquet(out_path, engine="pyarrow", index=False)
+
+            n_indicators = len(df_with_indicators.columns) - len(df.columns)
+            print(f"  [*] Computed {n_indicators} indicator columns")
+            print(f"  [*] Saved to {out_path}")
 
     return True
 
@@ -143,7 +151,7 @@ def main():
     # Final summary
     print("\n" + "#" * 60)
     if gate_pass:
-        print("#  ✅ PHASE 1 COMPLETE — Gate condition met!")
+        print("#  [PASS] PHASE 1 COMPLETE - Gate condition met!")
         print("#  Next: Run with --with-indicators to compute features")
         print("#  Then proceed to Phase 2: Feature Engineering")
     else:

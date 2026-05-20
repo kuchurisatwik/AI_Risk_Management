@@ -1,0 +1,22 @@
+# Expert hand-tuned parameters based on Phase 4 diagnostic dashboard analysis
+sl_mult_trending_low: 3.5
+tp_mult_trending_low: 6.0
+
+sl_mult_trending_high: 4.0
+tp_mult_trending_high: 6.0
+
+sl_mult_sideways: 3.0
+tp_mult_sideways: 3.0
+
+sl_mult_choppy: 4.0
+tp_mult_choppy: 2.0
+
+time_barrier_bars: 48
+
+prob_floor_trending_low: 0.58
+prob_floor_trending_high: 0.58
+prob_floor_sideways: 0.55
+prob_floor_choppy: 0.65
+
+max_daily_trades: 3
+min_inter_trade_bars: 12

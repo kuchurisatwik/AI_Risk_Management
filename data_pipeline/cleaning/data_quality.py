@@ -178,49 +178,55 @@ class DataQualityValidator:
         }
         return report
 
-    def validate_all(self, symbol="BTCUSDT"):
-        """Validate all timeframes for a symbol. Print quality report."""
+    def validate_all(self):
+        """Validate all timeframes for all symbols. Print quality report."""
         ds_cfg_path = self.project_root / "config" / "data_sources.yaml"
         with open(ds_cfg_path) as f:
             ds_cfg = yaml.safe_load(f)
         timeframes = ds_cfg["timeframes"]
+        symbols = ds_cfg.get("symbols", ["BTCUSDT"])
 
         print("\n" + "=" * 60)
         print("DATA QUALITY REPORT")
         print("=" * 60)
-        print(f"  Symbol: {symbol}")
 
-        reports = {}
+        all_reports = {}
         all_pass = True
 
-        for tf in timeframes:
-            r = self.validate_timeframe(symbol, tf)
-            reports[tf] = r
+        for symbol in symbols:
+            print(f"\n  Symbol: {symbol}")
+            reports = {}
 
-            if r["status"] == "file_not_found":
-                print(f"\n  {tf}: [!] FILE NOT FOUND")
-                all_pass = False
-                continue
+            for tf in timeframes:
+                r = self.validate_timeframe(symbol, tf)
+                reports[tf] = r
 
-            gate = "[PASS]" if r["gate_pass"] else "[FAIL]"
-            if not r["gate_pass"]:
-                all_pass = False
+                if r["status"] == "file_not_found":
+                    print(f"\n  {tf}: [!] FILE NOT FOUND")
+                    all_pass = False
+                    continue
 
-            print(f"\n  {tf}: {gate}")
-            print(f"    Rows:       {r['total_rows']:,}")
-            print(f"    Range:      {r['date_range']}")
-            print(f"    Missing:    {r['missing_candles']:,} ({r['missing_pct']:.2f}%)")
-            print(f"    Bad OHLCV:  {r['invalid_ohlcv']}")
-            print(f"    Spikes:     {r['spikes_detected']}")
-            print(f"    Duplicates: {r['duplicates']}")
-            print(f"    UTC:        {'YES' if r['timezone_utc'] else 'NO'}")
+                gate = "[PASS]" if r["gate_pass"] else "[FAIL]"
+                if not r["gate_pass"]:
+                    all_pass = False
+
+                print(f"\n  {tf}: {gate}")
+                print(f"    Rows:       {r['total_rows']:,}")
+                print(f"    Range:      {r['date_range']}")
+                print(f"    Missing:    {r['missing_candles']:,} ({r['missing_pct']:.2f}%)")
+                print(f"    Bad OHLCV:  {r['invalid_ohlcv']}")
+                print(f"    Spikes:     {r['spikes_detected']}")
+                print(f"    Duplicates: {r['duplicates']}")
+                print(f"    UTC:        {'YES' if r['timezone_utc'] else 'NO'}")
+            
+            all_reports[symbol] = reports
 
         print(f"\n{'=' * 60}")
         overall = "[PASS] PHASE 1 GATE MET" if all_pass else "[FAIL] PHASE 1 GATE NOT MET"
         print(f"  {overall}")
         print(f"{'=' * 60}")
 
-        return reports, all_pass
+        return all_reports, all_pass
 
 
 if __name__ == "__main__":

@@ -1,19 +1,21 @@
 """
-Trade Decision Orchestrator — Rolling Z-Score Execution.
+Trade Decision Orchestrator — Daily Opportunity Ranker.
 
 Replaces static probability thresholds with cross-sectional 
-Z-score ranking based on the raw log-odds (margin) of the Meta-Model.
+daily ranking. Selects the top N best opportunities per UTC day,
+gated by regime probability floors.
 """
 
 import logging
 import numpy as np
-from collections import deque
+import pandas as pd
 from dataclasses import dataclass, field
 from typing import List
 
 from inference.model_ensemble import ModelEnsemble, ModelOutputs
 from inference.policy_engine import PolicyEngine, PolicyDecision
-from inference.risk_sizer import compute_kelly_sizing, SizingResult
+from inference.threshold_engine import compute_adaptive_threshold
+from inference.risk_sizer import compute_adaptive_sizing, SizingResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +27,8 @@ class TradeDecision:
     
     # Confidence
     meta_probability: float = 0.0
-    meta_margin_zscore: float = 0.0
-    zscore_threshold: float = 1.64  # ~95th percentile
+    meta_margin: float = 0.0
+    daily_rank: int = 0
     
     # Risk parameters
     risk_percent: float = 0.0
@@ -40,6 +42,7 @@ class TradeDecision:
     # Context
     regime: str = 'unknown'
     regime_confidence: float = 0.0
+    active_branch: str = 'none'
     
     # Governance
     block_reasons: List[str] = field(default_factory=list)
@@ -49,49 +52,66 @@ class TradeDecision:
 
 class TradeDecisionEngine:
     """
-    Institutional Z-Score Ranking Orchestrator.
+    Institutional Daily Opportunity Ranker Orchestrator.
     """
     
-    def __init__(self, models_dir: str):
+    def __init__(self, models_dir: str, exec_params: dict = None):
+        self.exec_params = exec_params or {}
         self.ensemble = ModelEnsemble(models_dir)
-        self.policy = PolicyEngine()
+        self.policy = PolicyEngine(exec_params=self.exec_params)
         self._loaded = False
         
-        # Rolling window for Z-score calculation (last 1000 bars)
-        self.margin_window = deque(maxlen=1000)
+        self._current_utc_day = None
+        self._daily_signals = []  # List of margin scores seen today
     
     def load(self):
         """Load all models."""
         self.ensemble.load()
         self._loaded = True
-    
+
+    def _update_daily_tracker(self, utc_day, margin):
+        """Track margins seen today to determine relative rank."""
+        if utc_day != self._current_utc_day:
+            self._current_utc_day = utc_day
+            self._daily_signals = []
+            
+        self._daily_signals.append(margin)
+        
+        # Calculate rank (1 = highest margin seen today)
+        # Sort descending
+        sorted_margins = sorted(self._daily_signals, reverse=True)
+        # Rank is the index + 1
+        rank = sorted_margins.index(margin) + 1
+        return rank
+
     def decide(self, features: dict, equity: float = 10000.0) -> TradeDecision:
         decision = TradeDecision()
+        self.policy.tick() # Advance bar counter
         
         # 1. Model Inference
         outputs = self.ensemble.predict(features)
         decision.meta_probability = outputs.meta_probability
+        decision.meta_margin = outputs.meta_margin
         decision.regime = outputs.regime_label
         decision.regime_confidence = outputs.regime_confidence
+        decision.active_branch = outputs.active_branch
         
-        # Update rolling margin window
-        self.margin_window.append(outputs.meta_margin)
-        
-        # 2. Compute Rolling Z-Score
-        if len(self.margin_window) > 100:
-            window_mean = np.mean(self.margin_window)
-            window_std = np.std(self.margin_window)
-            if window_std > 0:
-                decision.meta_margin_zscore = (outputs.meta_margin - window_mean) / window_std
+        # 2. Track current UTC day for ranking
+        open_time = features.get('open_time', None)
+        if open_time is not None:
+            if isinstance(open_time, pd.Timestamp):
+                utc_day = open_time.date()
             else:
-                decision.meta_margin_zscore = 0.0
+                try:
+                    utc_day = pd.Timestamp(open_time).date()
+                except Exception:
+                    utc_day = self._current_utc_day
         else:
-            # Not enough data for Z-score, block trade
-            decision.action = 'NO_TRADE'
-            decision.block_reasons.append('WARMUP: Insufficient history for Z-score')
-            return decision
+            utc_day = self._current_utc_day
+            
+        decision.daily_rank = self._update_daily_tracker(utc_day, outputs.meta_margin)
         
-        # 3. Policy Engine Gating
+        # 3. Policy Engine Gating (Hard blocks, budgets, spacing, soft modifiers)
         policy = self.policy.evaluate(outputs, features)
         decision.policy_allowed = policy.allow_trade
         decision.block_reasons = policy.block_reasons
@@ -100,36 +120,79 @@ class TradeDecisionEngine:
         if not policy.allow_trade:
             decision.action = 'NO_TRADE'
             return decision
-            
-        # 4. Z-Score Execution Threshold
-        # We only trade if the signal is in the top tier of recent history
-        if decision.meta_margin_zscore < decision.zscore_threshold:
+
+        # 4. Probability Floor Check
+        vol_pct = features.get('volatility_percentile', 0.5)
+        recent_dd = features.get('recent_drawdown', 0.0)
+        health = features.get('strategy_health_score', 1.0)
+        
+        thresh_state = compute_adaptive_threshold(
+            regime_label=outputs.regime_label,
+            branch=outputs.active_branch,
+            volatility_percentile=vol_pct,
+            recent_drawdown=recent_dd,
+            strategy_health_score=health,
+            regime_confidence=outputs.regime_confidence
+        )
+        
+        # Override baseline threshold with optimized floor if available
+        floor_map = {
+            'trending_low_vol': self.exec_params.get('prob_floor_trending_low', None),
+            'trending_high_vol': self.exec_params.get('prob_floor_trending_high', None),
+            'sideways_low_vol': self.exec_params.get('prob_floor_sideways', None),
+            'choppy_high_vol': self.exec_params.get('prob_floor_choppy', None),
+        }
+        custom_floor = floor_map.get(outputs.regime_label)
+        if custom_floor is not None:
+            thresh_state.adjusted_threshold = max(thresh_state.adjusted_threshold, custom_floor)
+        
+        if decision.meta_probability < thresh_state.adjusted_threshold:
             decision.action = 'NO_TRADE'
             decision.block_reasons.append(
-                f'THRESHOLD: zscore={decision.meta_margin_zscore:.2f} < {decision.zscore_threshold:.2f}'
+                f'FLOOR: prob={decision.meta_probability:.3f} < floor={thresh_state.adjusted_threshold:.3f}'
+            )
+            return decision
+            
+        # 5. Daily Opportunity Ranker Check
+        # Default N=3 trades per day. If a signal isn't in the top 3 seen *so far* today,
+        # we reject it, expecting a better one might come (or we already traded the best).
+        # We also look at the policy max_daily_trades.
+        from training.config import REGIME_RISK_CONFIG
+        regime_cfg = REGIME_RISK_CONFIG.get(outputs.regime_label, {})
+        max_trades = regime_cfg.get('max_daily_trades', 3)
+        
+        if decision.daily_rank > max_trades:
+            decision.action = 'NO_TRADE'
+            decision.block_reasons.append(
+                f'RANK: daily_rank={decision.daily_rank} > max_allowed={max_trades}'
             )
             return decision
         
-        # 5. Action Direction
+        # 6. Action Direction
         direction = outputs.predicted_direction
         decision.action = 'LONG' if direction == 1 else 'SHORT'
         
-        # 6. Kelly Sizing
+        # 7. Adaptive Sizing
         atr = features.get('atr_14', 0.0)
         entry_price = features.get('close', 0.0)
         pred_vol = outputs.predicted_volatility
+        realized_vol = features.get('realized_volatility', 0.0)
+        vwap = features.get('vwap', 0.0)
         
         if atr > 0 and entry_price > 0:
-            sizing = compute_kelly_sizing(
+            sizing = compute_adaptive_sizing(
                 equity=equity,
                 entry_price=entry_price,
                 direction=direction,
-                meta_probability=outputs.meta_probability,
+                regime=outputs.regime_label,
+                active_branch=outputs.active_branch,
                 predicted_volatility=pred_vol,
+                realized_volatility=realized_vol,
                 atr_14=atr,
+                vwap_price=vwap,
                 sl_multiplier=policy.sl_multiplier,
                 tp_multiplier=policy.tp_multiplier,
-                regime_risk_modifier=policy.risk_percent # Using Policy's modified risk as a scalar
+                policy_risk_modifier=policy.risk_percent
             )
             
             decision.risk_percent = sizing.risk_percent
@@ -140,9 +203,11 @@ class TradeDecisionEngine:
             decision.reward_risk_ratio = sizing.reward_risk_ratio
             decision.position_size_usd = sizing.position_size_usd
             
-            # Additional sanity check on Kelly sizing
             if sizing.risk_percent <= 0:
                 decision.action = 'NO_TRADE'
-                decision.block_reasons.append(f'KELLY: Negative edge, risk_percent={sizing.risk_percent:.2f}%')
+                decision.block_reasons.append(f'SIZING: risk_percent={sizing.risk_percent:.2f}%')
+            else:
+                # Successfully passing all gates -> record trade in policy
+                self.policy.record_trade()
         
         return decision
