@@ -77,223 +77,9 @@ def _suggest_execution_params(trial: optuna.Trial) -> dict:
         'max_daily_trades': trial.suggest_int('max_daily_trades', 1, 5),
         'soft_reduction_floor': trial.suggest_float('soft_reduction_floor', 0.15, 0.50),
     }
-
-
-# ============================================================
-# LIGHTWEIGHT BACKTEST (for objective evaluation)
-# ============================================================
-
-def _lightweight_backtest(
-    test_df: pd.DataFrame,
-    predictions: pd.DataFrame,
-    exec_params: dict,
-    initial_equity: float = 10000.0,
-) -> dict:
-    """
-    Run a lightweight backtest using the specified execution parameters.
-    
-    This is a simplified version of the full PaperTrader that accepts
-    dynamic execution parameters instead of reading from global config.
-    Uses precomputed ML predictions to speed up 100x.
-    
-    Returns dict with sharpe_ratio, total_return, max_drawdown, win_rate, n_trades
-    """
-    from inference.threshold_engine import REGIME_PROBABILITY_FLOORS
-    from training.config import REGIME_RISK_CONFIG
-    
-    # Override probability floors
-    floor_map = {
-        'trending_low_vol': exec_params.get('prob_floor_trending_low', 0.52),
-        'trending_high_vol': exec_params.get('prob_floor_trending_high', 0.55),
-        'sideways_low_vol': exec_params.get('prob_floor_sideways', 0.54),
-        'choppy_high_vol': exec_params.get('prob_floor_choppy', 0.60),
-        'crash_mode': 1.00,
-        'unknown': 0.60,
-    }
-    
-    # Override regime risk config
-    regime_cfg = deepcopy(REGIME_RISK_CONFIG)
-    regime_cfg['trending_low_vol']['kelly_frac'] = exec_params.get('kelly_frac_trending_low', 0.5)
-    regime_cfg['trending_low_vol']['target_vol'] = exec_params.get('target_vol_trending_low', 0.10)
-    regime_cfg['trending_high_vol']['kelly_frac'] = exec_params.get('kelly_frac_trending_high', 0.35)
-    regime_cfg['trending_high_vol']['target_vol'] = exec_params.get('target_vol_trending_high', 0.08)
-    regime_cfg['sideways_low_vol']['kelly_frac'] = exec_params.get('kelly_frac_sideways', 0.3)
-    regime_cfg['trending_low_vol']['max_risk_pct'] = exec_params.get('max_risk_pct', 1.5)
-    regime_cfg['trending_high_vol']['max_risk_pct'] = exec_params.get('max_risk_pct', 1.0)
-    
-    # SL/TP multiplier map
-    sl_tp_map = {
-        'trending_low_vol': (exec_params['sl_mult_trending_low'], exec_params['tp_mult_trending_low']),
-        'trending_high_vol': (exec_params['sl_mult_trending_high'], exec_params['tp_mult_trending_high']),
-        'sideways_low_vol': (exec_params['sl_mult_sideways'], exec_params['tp_mult_sideways']),
-        'choppy_high_vol': (exec_params['sl_mult_choppy'], exec_params['tp_mult_choppy']),
-    }
-    
-    time_barrier = exec_params.get('time_barrier_bars', 36)
-    min_spacing = exec_params.get('min_inter_trade_bars', 12)
-    max_daily = exec_params.get('max_daily_trades', 3)
-    soft_floor = exec_params.get('soft_reduction_floor', 0.25)
-    
-    # Simulation state
-    equity = initial_equity
-    peak_equity = equity
-    max_drawdown = 0.0
-    all_returns = []
-    trades = []
-    open_trade = None
-    bars_held = 0
-    bars_since_trade = 999
-    daily_count = 0
-    current_day = None
-    
-    SLIPPAGE_PCT = 0.0001
-    FEE_PCT = 0.0004
-    
-    columns = list(test_df.columns)
-    
-    for i in range(len(test_df)):
-        row = test_df.iloc[i]
-        features = {col: float(row[col]) if isinstance(row[col], (int, float, np.integer, np.floating)) else row[col] for col in columns}
-        current_close = row['close']
-        
-        # Day tracking
-        open_time = row.get('open_time', None)
-        if open_time is not None:
-            try:
-                day = pd.Timestamp(open_time).date()
-                if day != current_day:
-                    current_day = day
-                    daily_count = 0
-            except Exception:
-                pass
-        
-        bars_since_trade += 1
-        
-        # Check open trade
-        if open_trade is not None:
-            hit = False
-            direction = open_trade['direction']
-            
-            if direction == 1:
-                if row['low'] <= open_trade['sl']:
-                    exit_price = open_trade['sl']
-                    hit = True
-                elif row['high'] >= open_trade['tp']:
-                    exit_price = open_trade['tp']
-                    hit = True
-            else:
-                if row['high'] >= open_trade['sl']:
-                    exit_price = open_trade['sl']
-                    hit = True
-                elif row['low'] <= open_trade['tp']:
-                    exit_price = open_trade['tp']
-                    hit = True
-            
-            if hit:
-                raw_pnl = direction * (exit_price - open_trade['entry'])
-                fees = (open_trade['entry'] + exit_price) * FEE_PCT
-                slip = exit_price * SLIPPAGE_PCT
-                units = open_trade['size_usd'] / open_trade['entry'] if open_trade['entry'] > 0 else 0
-                pnl = (raw_pnl - fees - slip) * units
-                
-                equity += pnl
-                all_returns.append(pnl / peak_equity if peak_equity > 0 else 0)
-                trades.append(pnl)
-                open_trade = None
-                bars_held = 0
-                bars_since_trade = 0
-            else:
-                bars_held += 1
-                if bars_held >= time_barrier:
-                    raw_pnl = direction * (current_close - open_trade['entry'])
-                    fees = (open_trade['entry'] + current_close) * FEE_PCT
-                    slip = current_close * SLIPPAGE_PCT
-                    units = open_trade['size_usd'] / open_trade['entry'] if open_trade['entry'] > 0 else 0
-                    pnl = (raw_pnl - fees - slip) * units
-                    
-                    equity += pnl
-                    all_returns.append(pnl / peak_equity if peak_equity > 0 else 0)
-                    trades.append(pnl)
-                    open_trade = None
-                    bars_held = 0
-                    bars_since_trade = 0
-        
-        # New trade decision
-        if open_trade is None and bars_since_trade >= min_spacing and daily_count < max_daily:
-            pred_row = predictions.iloc[i]
-            
-            # Probability floor check
-            floor = floor_map.get(pred_row['regime_label'], 0.60)
-            if pred_row['meta_probability'] >= floor and pred_row['active_branch'] != 'none':
-                direction = pred_row['predicted_direction']
-                if direction != 0:
-                    atr = pred_row['atr_14']
-                    entry_price = current_close
-                    if atr > 0 and entry_price > 0:
-                        sl_mult, tp_mult = sl_tp_map.get(pred_row['regime_label'], (2.5, 4.0))
-                        
-                        sl_dist = atr * sl_mult
-                        tp_dist = atr * tp_mult
-                        
-                        if direction == 1:
-                            sl_price = entry_price - sl_dist
-                            tp_price = entry_price + tp_dist
-                        else:
-                            sl_price = entry_price + sl_dist
-                            tp_price = entry_price - tp_dist
-                        
-                        # Simplified sizing
-                        cfg = regime_cfg.get(pred_row['regime_label'], {})
-                        risk_pct = max(soft_floor, min(cfg.get('max_risk_pct', 1.5), 1.5))
-                        risk_amount = equity * (risk_pct / 100.0)
-                        sl_pct = sl_dist / entry_price
-                        size_usd = risk_amount / sl_pct if sl_pct > 0 else 0
-                        
-                        if size_usd > 0:
-                            entry_with_slip = entry_price + direction * entry_price * SLIPPAGE_PCT
-                            open_trade = {
-                                'entry': entry_with_slip,
-                                'direction': direction,
-                                'sl': sl_price,
-                                'tp': tp_price,
-                                'size_usd': size_usd,
-                            }
-                            bars_held = 0
-                            daily_count += 1
-        
-        if open_trade is None:
-            all_returns.append(0.0)
-        
-        if equity > peak_equity:
-            peak_equity = equity
-        dd = (equity - peak_equity) / peak_equity if peak_equity > 0 else 0
-        if dd < max_drawdown:
-            max_drawdown = dd
-    
-    # Compute metrics
-    returns = np.array(all_returns)
-    n_trades = len(trades)
-    
-    if len(returns) > 1 and returns.std() > 0:
-        sharpe = (returns.mean() / returns.std()) * np.sqrt(105120)
-    else:
-        sharpe = -100.0
-    
-    total_return = (equity - initial_equity) / initial_equity
-    win_rate = sum(1 for t in trades if t > 0) / n_trades if n_trades > 0 else 0
-    
-    return {
-        'sharpe_ratio': float(sharpe),
-        'total_return': float(total_return),
-        'max_drawdown': float(max_drawdown),
-        'win_rate': float(win_rate),
-        'n_trades': n_trades,
-    }
-
-
 # ============================================================
 # OPTIMIZER CLASS
-# ============================================================
+# ==============================================================
 
 class AssetOptimizer:
     """
@@ -327,25 +113,13 @@ class AssetOptimizer:
         ensemble = ModelEnsemble(models_dir)
         ensemble.load()
         
-        preds = {
-            'regime_label': [],
-            'meta_probability': [],
-            'active_branch': [],
-            'predicted_direction': [],
-            'atr_14': []
-        }
+        self.precomputed_list = []
         columns = list(val_df.columns)
         for i in range(len(val_df)):
             row = val_df.iloc[i]
             features = {col: float(row[col]) if isinstance(row[col], (int, float, np.integer, np.floating)) else row[col] for col in columns}
-            out = ensemble.predict(features)
-            preds['regime_label'].append(out.regime_label)
-            preds['meta_probability'].append(out.meta_probability)
-            preds['active_branch'].append(out.active_branch)
-            preds['predicted_direction'].append(out.predicted_direction)
-            preds['atr_14'].append(features.get('atr_14', 0.0))
+            self.precomputed_list.append(ensemble.predict(features))
             
-        self.predictions = pd.DataFrame(preds)
         logger.info(f"Precomputation complete.")
     
     def _objective(self, trial: optuna.Trial) -> float:
@@ -353,27 +127,28 @@ class AssetOptimizer:
         exec_params = _suggest_execution_params(trial)
         
         try:
-            result = _lightweight_backtest(
-                self.val_df,
-                self.predictions,
-                exec_params,
-            )
+            from execution.paper_trader import PaperTrader
+            trader = PaperTrader(models_dir=self.models_dir, initial_equity=10000.0, exec_params=exec_params)
+            # Skip engine loading because we are passing precomputed predictions
+            trader.engine.ensemble._loaded = True
             
-            sharpe = result['sharpe_ratio']
-            n_trades = result['n_trades']
+            pt_result = trader.run(self.val_df, precomputed_outputs=self.precomputed_list)
+            
+            sharpe = pt_result.sharpe_ratio
+            n_trades = pt_result.total_trades
             
             # Penalize if too few trades (< 20)
             if n_trades < 20:
                 sharpe -= (20 - n_trades) * 0.5
             
             # Penalize extreme drawdowns
-            if result['max_drawdown'] < -0.10:
-                sharpe -= abs(result['max_drawdown']) * 10
+            if pt_result.max_drawdown < -0.10:
+                sharpe -= abs(pt_result.max_drawdown) * 10
             
-            trial.set_user_attr('total_return', result['total_return'])
-            trial.set_user_attr('max_drawdown', result['max_drawdown'])
-            trial.set_user_attr('win_rate', result['win_rate'])
-            trial.set_user_attr('n_trades', result['n_trades'])
+            trial.set_user_attr('total_return', pt_result.total_return)
+            trial.set_user_attr('max_drawdown', pt_result.max_drawdown)
+            trial.set_user_attr('win_rate', pt_result.win_rate)
+            trial.set_user_attr('n_trades', pt_result.total_trades)
             
             return sharpe
             

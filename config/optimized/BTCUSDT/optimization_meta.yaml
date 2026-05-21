@@ -1,9 +1,9 @@
 symbol: BTCUSDT
-timestamp: '2026-05-20T17:19:14.166540'
-n_trials: 50
-best_trial: 6
-best_sharpe: 0.4564350314552379
-best_return: 0.015093905277329577
-best_drawdown: -0.08382968246245465
-best_win_rate: 0.6545454545454545
-best_n_trades: 55
+timestamp: '2026-05-21T07:16:25.362269'
+n_trials: 100
+best_trial: 92
+best_sharpe: -0.475796345999277
+best_return: -0.00025609766497109376
+best_drawdown: -0.0008540566917521698
+best_win_rate: 0.5454545454545454
+best_n_trades: 33

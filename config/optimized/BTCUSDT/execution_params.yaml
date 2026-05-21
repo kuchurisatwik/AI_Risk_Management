@@ -1,22 +1,22 @@
-# Expert hand-tuned parameters based on Phase 4 diagnostic dashboard analysis
-sl_mult_trending_low: 3.5
-tp_mult_trending_low: 6.0
-
-sl_mult_trending_high: 4.0
-tp_mult_trending_high: 6.0
-
-sl_mult_sideways: 3.0
-tp_mult_sideways: 3.0
-
-sl_mult_choppy: 4.0
-tp_mult_choppy: 2.0
-
-time_barrier_bars: 48
-
-prob_floor_trending_low: 0.58
-prob_floor_trending_high: 0.58
-prob_floor_sideways: 0.55
-prob_floor_choppy: 0.65
-
-max_daily_trades: 3
-min_inter_trade_bars: 12
+sl_mult_trending_low: 3.755244430621673
+tp_mult_trending_low: 6.764155462861271
+sl_mult_trending_high: 4.025008845631551
+tp_mult_trending_high: 3.652369378409469
+sl_mult_sideways: 1.9196360985704335
+tp_mult_sideways: 3.1157644699429996
+sl_mult_choppy: 2.016746868848431
+tp_mult_choppy: 1.5016001651824793
+time_barrier_bars: 66
+prob_floor_trending_low: 0.6198690747816882
+prob_floor_trending_high: 0.5285469170630558
+prob_floor_sideways: 0.6327931782255747
+prob_floor_choppy: 0.6972084313122041
+kelly_frac_trending_low: 0.23637957396057271
+kelly_frac_trending_high: 0.36595218502611315
+kelly_frac_sideways: 0.15927794095926046
+target_vol_trending_low: 0.10247480028437672
+target_vol_trending_high: 0.06310811353529522
+max_risk_pct: 2.385828216107525
+min_inter_trade_bars: 17
+max_daily_trades: 5
+soft_reduction_floor: 0.17048275774424515

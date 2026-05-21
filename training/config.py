@@ -108,16 +108,18 @@ REGIME_RISK_CONFIG = {
 MOMENTUM_PARAMS = {
     'n_estimators': 300,
     'learning_rate': 0.05,
-    'max_depth': 6,
-    'min_child_weight': 5,
+    'max_depth': 4,
+    'min_child_weight': 10,
+    'subsample': 0.8,
+    'colsample_bytree': 0.8,
     'random_state': 42,
 }
 
 VOLATILITY_PARAMS = {
     'n_estimators': 200,
     'learning_rate': 0.05,
-    'max_depth': 6,
-    'min_child_weight': 10,
+    'max_depth': 4,
+    'min_child_weight': 15,
     'subsample': 0.8,
     'colsample_bytree': 0.8,
     'random_state': 42,
@@ -126,8 +128,10 @@ VOLATILITY_PARAMS = {
 RISK_PARAMS = {
     'n_estimators': 300,
     'learning_rate': 0.05,
-    'max_depth': 6,
-    'min_child_weight': 5,
+    'max_depth': 4,
+    'min_child_weight': 10,
+    'subsample': 0.8,
+    'colsample_bytree': 0.8,
     'random_state': 42,
     'objective': 'multi:softprob',
     'num_class': 4,

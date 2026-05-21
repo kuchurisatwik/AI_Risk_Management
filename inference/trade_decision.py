@@ -84,12 +84,16 @@ class TradeDecisionEngine:
         rank = sorted_margins.index(margin) + 1
         return rank
 
-    def decide(self, features: dict, equity: float = 10000.0) -> TradeDecision:
+    def decide(self, features: dict, equity: float = 10000.0, precomputed_outputs: ModelOutputs = None) -> TradeDecision:
         decision = TradeDecision()
         self.policy.tick() # Advance bar counter
         
         # 1. Model Inference
-        outputs = self.ensemble.predict(features)
+        if precomputed_outputs is not None:
+            outputs = precomputed_outputs
+        else:
+            outputs = self.ensemble.predict(features)
+            
         decision.meta_probability = outputs.meta_probability
         decision.meta_margin = outputs.meta_margin
         decision.regime = outputs.regime_label

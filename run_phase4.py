@@ -138,10 +138,12 @@ def run_pipeline_for_symbol(symbol):
     train_behavioral(train_df, val_df, test_df, models_dir / "behavioral")
     
     # ---- 6. Paper Trading ----
-    print("\nSTEP 6: PAPER TRADING (Daily Ranker + Adaptive Sizing)")
+    print("\nSTEP 6: OPTIMIZATION & PAPER TRADING (Fast Vectorized)")
     
-    from training.optimizer import load_optimized_config
-    exec_params = load_optimized_config(symbol)
+    from training.optimizer import AssetOptimizer
+    print("  Running Optuna execution parameter optimization (100 trials)...")
+    opt = AssetOptimizer(symbol, str(models_dir), val_df, n_trials=100)
+    exec_params = opt.optimize()
     
     trader = PaperTrader(
         models_dir=str(models_dir),
@@ -149,14 +151,19 @@ def run_pipeline_for_symbol(symbol):
         exec_params=exec_params
     )
     
-    print("  Warming up model states with validation set...")
-    trader.engine.load()
-    for _, row in val_df.iterrows():
-        features = {col: float(row[col]) if isinstance(row[col], (int, float, np.integer, np.floating)) else row[col] for col in val_df.columns}
-        _ = trader.engine.ensemble.predict(features)
+    print("  Precomputing ML outputs for test set...")
+    trader.engine.ensemble.load()
+    trader.engine.ensemble._loaded = True
+    
+    precomp_list = []
+    columns = list(test_df.columns)
+    for i in range(len(test_df)):
+        row = test_df.iloc[i]
+        features = {col: float(row[col]) if isinstance(row[col], (int, float, np.integer, np.floating)) else row[col] for col in columns}
+        precomp_list.append(trader.engine.ensemble.predict(features))
         
-    print("  Running simulation on test set...")
-    result = trader.run(test_df)
+    print("  Running fast simulation on test set...")
+    result = trader.run(test_df, precomputed_outputs=precomp_list)
     
     print(f"\n  PERFORMANCE METRICS ({symbol}):")
     print(f"    Total Return:     {result.total_return * 100:.2f}%")
@@ -207,21 +214,17 @@ def run_pipeline_for_symbol(symbol):
                 'policy_warnings': t.policy_warnings
             })
         trades_df = pd.DataFrame(trade_data)
-        trades_file = results_dir / f"{symbol}_diagnostic_log.csv"
+        trades_file = results_dir / f"{symbol}_test_trades.csv"
         trades_df.to_csv(trades_file, index=False)
         print(f"\n  Saved {len(result.trades)} detailed diagnostic trades to {trades_file}")
         
-        # ---- 7. Run Diagnostics and Visuals ----
-        print("\nSTEP 7: POST-TRADE DIAGNOSTICS & VISUALIZATION")
+        # ---- 7. Run Diagnostics ----
+        print("\nSTEP 7: POST-TRADE DIAGNOSTICS")
         try:
             from analysis.diagnostic_analyzer import run_diagnostics
-            from analysis.visual_dashboard import create_dashboard
-            
             report_file = run_diagnostics(symbol, trades_file)
             print(f"  Diagnostic report saved to {report_file}")
-            
-            dashboard_file = create_dashboard(symbol, test_df, trades_file)
-            print(f"  Visual dashboard saved to {dashboard_file}")
+            print(f"  (Dashboard generation skipped per user request)")
         except ImportError as e:
             print(f"  [!] Skipping diagnostics: {e}")
         except Exception as e:

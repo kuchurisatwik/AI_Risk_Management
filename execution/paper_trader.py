@@ -92,12 +92,13 @@ class PaperTrader:
         """Load inference models."""
         self.engine.load()
     
-    def run(self, df: pd.DataFrame) -> PaperTradingResult:
+    def run(self, df: pd.DataFrame, precomputed_outputs: list = None) -> PaperTradingResult:
         """
         Run the full paper trading simulation.
         
         Args:
             df: DataFrame with all features (test set)
+            precomputed_outputs: List of ModelOutputs corresponding to each row
         
         Returns:
             PaperTradingResult with comprehensive metrics
@@ -198,7 +199,11 @@ class PaperTrader:
             
             # ---- Make new decision if no open trade ----
             if open_trade is None:
-                decision = self.engine.decide(features, equity)
+                precomp = precomputed_outputs[i] if precomputed_outputs else None
+                if not precomp:
+                    precomp = self.engine.ensemble.predict(features)
+                    
+                decision = self.engine.decide(features, equity, precomputed_outputs=precomp)
                 
                 if decision.action in ('LONG', 'SHORT'):
                     direction = 1 if decision.action == 'LONG' else -1
@@ -219,12 +224,12 @@ class PaperTrader:
                         regime=decision.regime,
                         confidence=decision.meta_probability,
                         active_branch=decision.active_branch,
-                        gmm_subregime=self.engine.ensemble.predict(features).gmm_subregime,
+                        gmm_subregime=precomp.gmm_subregime,
                         # Diagnostic fields
                         meta_probability=decision.meta_probability,
                         meta_margin=decision.meta_margin,
                         regime_confidence=decision.regime_confidence,
-                        risk_level=getattr(self.engine.ensemble.predict(features), 'risk_level', 'unknown') if hasattr(self.engine, 'ensemble') else 'unknown',
+                        risk_level=getattr(precomp, 'risk_level', 'unknown'),
                         sl_distance_pct=sl_dist_pct,
                         tp_distance_pct=tp_dist_pct,
                         designed_rr=decision.reward_risk_ratio,

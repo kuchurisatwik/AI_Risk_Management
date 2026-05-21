@@ -1,71 +1,59 @@
 {
     "overall": {
-        "total_trades": 90,
-        "win_rate": 0.4777777777777778,
-        "total_pnl": -63.563917523024536,
-        "avg_pnl": -0.7062657502558282,
-        "avg_win": 2.2505368069616885,
-        "avg_loss": -3.411425536646322
+        "total_trades": 8,
+        "win_rate": 0.375,
+        "total_pnl": -11.234987336510361,
+        "avg_pnl": -1.4043734170637951,
+        "avg_win": 3.3465729439116423,
+        "avg_loss": -4.254941233649058
     },
     "regime_performance": {
-        "sideways_low_vol": {
-            "trades": 4,
-            "win_rate": 0.5,
-            "total_pnl": -2.3867930817544702,
-            "avg_rr": 0.34722373096866016
-        },
         "trending_high_vol": {
-            "trades": 22,
-            "win_rate": 0.6363636363636364,
-            "total_pnl": 2.867851145790614,
-            "avg_rr": 0.7279144411015775
+            "trades": 3,
+            "win_rate": 0.3333333333333333,
+            "total_pnl": -3.599420933807358,
+            "avg_rr": 0.4932287450015646
         },
         "trending_low_vol": {
-            "trades": 64,
-            "win_rate": 0.421875,
-            "total_pnl": -64.04497558706068,
-            "avg_rr": 0.7700943274230191
+            "trades": 5,
+            "win_rate": 0.4,
+            "total_pnl": -7.635566402703002,
+            "avg_rr": 0.8057332809589219
         }
     },
     "exit_analysis": {
         "SL_HIT": {
-            "count": 38,
-            "pct_of_trades": 0.4222222222222222,
-            "avg_pnl": -3.9148226024587185,
-            "avg_bars_held": 5.7894736842105265
-        },
-        "TIME_BARRIER": {
-            "count": 12,
-            "pct_of_trades": 0.13333333333333333,
-            "avg_pnl": -0.9230222994555731,
-            "avg_bars_held": 36.0
+            "count": 5,
+            "pct_of_trades": 0.625,
+            "avg_pnl": -4.254941233649058,
+            "avg_bars_held": 18.6
         },
         "TP_HIT": {
-            "count": 40,
-            "pct_of_trades": 0.4444444444444444,
-            "avg_pnl": 2.406890224096841,
-            "avg_bars_held": 11.15
+            "count": 3,
+            "pct_of_trades": 0.375,
+            "avg_pnl": 3.3465729439116423,
+            "avg_bars_held": 39.333333333333336
         }
     },
     "excursion_analysis": {
-        "avg_mae_all": 74.0333664444432,
-        "avg_mfe_all": 118.2800530000006,
-        "avg_mae_winning_trades": 34.35396558139439,
+        "avg_mae_all": 194.23535749999974,
+        "avg_mfe_all": 163.44014750000133,
+        "avg_mae_winning_trades": 132.33950000000186,
         "tight_sl_percentage": 1.0
     },
     "policy_impact": {
-        "trades_with_reductions": 90,
+        "trades_with_reductions": 8,
         "trades_without_reductions": 0,
-        "win_rate_with_reductions": 0.4777777777777778,
+        "win_rate_with_reductions": 0.375,
         "win_rate_without_reductions": 0,
-        "avg_size_with_reductions": 1191.0272360457839,
+        "avg_size_with_reductions": 1032.2320324065993,
         "avg_size_without_reductions": 0
     },
     "failure_modes": [
         {
             "mode": "SL_TOO_TIGHT",
             "confidence": 85,
-            "evidence": "42.2% of trades hit SL, and winning trades suffer deep MAE.",
+            "evidence": "62.5% of trades hit SL, and winning trades suffer deep MAE.",
             "fix": "Widen SL multiplier in policy_engine.py or optimizer."
         }
     ]
